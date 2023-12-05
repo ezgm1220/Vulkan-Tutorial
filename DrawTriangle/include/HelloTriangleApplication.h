@@ -66,6 +66,7 @@ private:
     std::vector<VkImage> swapChainImages;// 这些图像是由交换链的实现创建的，一旦交换链被销毁，它们就会被自动清理
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
+    std::vector<VkImageView> swapChainImageViews;// 用来存储交换链中的基本图像
 
     void initWindow();
 
@@ -114,5 +115,7 @@ private:
     VkExtent2D          chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 
     void createSwapChain();
+
+    void createImageViews();
 
 };
