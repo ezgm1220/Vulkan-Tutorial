@@ -50,10 +50,12 @@ void HelloTriangleApplication::initWindow()
 
 void HelloTriangleApplication::initVulkan()
 {
-    PrintExtension();
+    //PrintExtension();
 
     createInstance();
     setupDebugMessenger();
+
+    pickPhysicalDevice();
 }
 
 void HelloTriangleApplication::mainLoop()
@@ -68,7 +70,7 @@ void HelloTriangleApplication::cleanup()
 {
     if(enableValidationLayers)
     {
-        //DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+        DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
 
     vkDestroyInstance(instance, nullptr);
@@ -240,5 +242,85 @@ void HelloTriangleApplication::populateDebugMessengerCreateInfo(VkDebugUtilsMess
         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 
     createInfo.pfnUserCallback = debugCallback;
+}
+
+void HelloTriangleApplication::pickPhysicalDevice()
+{
+    // 获取物理设备信息
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+    if(deviceCount == 0)
+    {
+        throw std::runtime_error("failed to find GPUs with Vulkan support!");
+    }
+
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+    // 选择合适的物理设备,这里我们默认选第一个合适的设备
+    for(const auto& device : devices)
+    {
+        if(isDeviceSuitable(device))
+        {
+            physicalDevice = device;
+            break;
+        }
+    }
+
+    if(physicalDevice == VK_NULL_HANDLE)
+    {
+        throw std::runtime_error("failed to find a suitable GPU!");
+    }
+}
+
+bool HelloTriangleApplication::isDeviceSuitable(VkPhysicalDevice device)
+{
+    /*          例子-如何获得具体的设备信息
+        VkPhysicalDeviceProperties deviceProperties;
+        VkPhysicalDeviceFeatures deviceFeatures;
+
+        // 获取设备详细属性,如名字,type
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        // 获取设备的特征,如对纹理压缩,64位浮点运算等
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+            deviceFeatures.geometryShader;
+    */
+    
+    QueueFamilyIndices indices = findQueueFamilies(device);
+
+    return indices.isComplete();
+}
+
+QueueFamilyIndices HelloTriangleApplication::findQueueFamilies(VkPhysicalDevice device)
+{
+    QueueFamilyIndices indices;
+    
+    // 获得队列簇
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+    int i = 0;
+    for(const auto& queueFamily : queueFamilies)
+    {// 找到支持 VK_QUEUE_GRAPHICS_BIT 的队列
+        if(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        {
+            indices.graphicsFamily = i;
+        }
+
+        if(indices.isComplete())
+        {
+            break;
+        }
+
+        i++;
+    }
+
+    return indices;
 }
 
