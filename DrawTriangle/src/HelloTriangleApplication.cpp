@@ -55,6 +55,8 @@ void HelloTriangleApplication::initVulkan()
     createInstance();
     setupDebugMessenger();
 
+    createSurface();
+
     pickPhysicalDevice();
     createLogicalDevice();
 }
@@ -76,6 +78,7 @@ void HelloTriangleApplication::cleanup()
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
 
+    vkDestroySurfaceKHR(instance, surface, nullptr);
     vkDestroyInstance(instance, nullptr);
 
     glfwDestroyWindow(window);
@@ -316,6 +319,14 @@ QueueFamilyIndices HelloTriangleApplication::findQueueFamilies(VkPhysicalDevice 
             indices.graphicsFamily = i;
         }
 
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+        if(presentSupport)
+        {
+            indices.presentFamily = i;
+        }
+
         if(indices.isComplete())
         {
             break;
@@ -331,14 +342,20 @@ void HelloTriangleApplication::createLogicalDevice()
 {
     // 创建VkDeviceQueueCreateInfo结构体并设置
     QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-    queueCreateInfo.queueCount = 1;
 
-    // 为队列分配优先级
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+
     float queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    for(uint32_t queueFamily : uniqueQueueFamilies)
+    {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamily;
+        queueCreateInfo.queueCount = 1;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
 
     // 设置device features
     VkPhysicalDeviceFeatures deviceFeatures{};
@@ -347,8 +364,8 @@ void HelloTriangleApplication::createLogicalDevice()
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
-    createInfo.pQueueCreateInfos = &queueCreateInfo;// 指向队列的创建信息
-    createInfo.queueCreateInfoCount = 1;
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+    createInfo.pQueueCreateInfos = queueCreateInfos.data();// 指向队列的创建信息
 
     createInfo.pEnabledFeatures = &deviceFeatures;// 指向设置好的features
 
@@ -372,7 +389,16 @@ void HelloTriangleApplication::createLogicalDevice()
 
     // 使用 vkGetDeviceQueue 函数来检索每个队列族的队列句柄
     // 参数包括逻辑设备、队列簇、队列索引和指向用于存储队列句柄的变量的指针。
-    vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, & graphicsQueue);
+    vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+    vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 
+}
+
+void HelloTriangleApplication::createSurface()
+{
+    if(glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create window surface!");
+    }
 }
 

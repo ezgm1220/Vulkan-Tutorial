@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <optional>
+#include <set>
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -16,11 +17,12 @@ const bool enableValidationLayers = true;
 struct QueueFamilyIndices
 {
     std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presentFamily;
     // std::optional 在赋值之前不包含任何值,可以通过has_value来区分
 
     bool isComplete()
     {
-        return graphicsFamily.has_value();
+        return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
 
@@ -40,9 +42,14 @@ private:
 
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
+    VkSurfaceKHR surface;
+
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;// 这个对象会默认销毁
+
     VkDevice device;
+
     VkQueue graphicsQueue;// 用来存储图形队列
+    VkQueue presentQueue;// 用来存储Presentation队列
 
     void initWindow();
 
@@ -77,5 +84,7 @@ private:
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);// 寻找我们需要的队列簇
 
     void createLogicalDevice();// 创建逻辑设备
+
+    void createSurface();
 
 };
