@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <iostream>
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -118,4 +119,9 @@ private:
 
     void createImageViews();
 
+    void createGraphicsPipeline();
+
+    static std::vector<char>readFile(const std::string& filename);
+
+    VkShaderModule createShaderModule(const std::vector<char>& code);
 };
