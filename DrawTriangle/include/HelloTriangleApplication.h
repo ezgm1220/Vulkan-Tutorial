@@ -8,6 +8,10 @@
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 
+const std::vector<const char*> deviceExtensions = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
@@ -24,6 +28,13 @@ struct QueueFamilyIndices
     {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
+};
+
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
 };
 
 class HelloTriangleApplication
@@ -50,6 +61,11 @@ private:
 
     VkQueue graphicsQueue;// 用来存储图形队列
     VkQueue presentQueue;// 用来存储Presentation队列
+
+    VkSwapchainKHR swapChain;
+    std::vector<VkImage> swapChainImages;// 这些图像是由交换链的实现创建的，一旦交换链被销毁，它们就会被自动清理
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
 
     void initWindow();
 
@@ -86,5 +102,17 @@ private:
     void createLogicalDevice();// 创建逻辑设备
 
     void createSurface();
+
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
+
+    VkSurfaceFormatKHR  chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+
+    VkPresentModeKHR    chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
+
+    VkExtent2D          chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+
+    void createSwapChain();
 
 };
