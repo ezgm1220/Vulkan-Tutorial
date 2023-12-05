@@ -41,6 +41,8 @@ private:
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;// 这个对象会默认销毁
+    VkDevice device;
+    VkQueue graphicsQueue;// 用来存储图形队列
 
     void initWindow();
 
@@ -73,4 +75,7 @@ private:
     bool isDeviceSuitable(VkPhysicalDevice device);// 检查物理设备是否合适
 
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);// 寻找我们需要的队列簇
+
+    void createLogicalDevice();// 创建逻辑设备
+
 };

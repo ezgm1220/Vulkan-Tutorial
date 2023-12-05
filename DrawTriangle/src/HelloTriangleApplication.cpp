@@ -56,6 +56,7 @@ void HelloTriangleApplication::initVulkan()
     setupDebugMessenger();
 
     pickPhysicalDevice();
+    createLogicalDevice();
 }
 
 void HelloTriangleApplication::mainLoop()
@@ -68,6 +69,8 @@ void HelloTriangleApplication::mainLoop()
 
 void HelloTriangleApplication::cleanup()
 {
+    vkDestroyDevice(device, nullptr);
+
     if(enableValidationLayers)
     {
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -322,5 +325,54 @@ QueueFamilyIndices HelloTriangleApplication::findQueueFamilies(VkPhysicalDevice 
     }
 
     return indices;
+}
+
+void HelloTriangleApplication::createLogicalDevice()
+{
+    // 创建VkDeviceQueueCreateInfo结构体并设置
+    QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+    VkDeviceQueueCreateInfo queueCreateInfo{};
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+    queueCreateInfo.queueCount = 1;
+
+    // 为队列分配优先级
+    float queuePriority = 1.0f;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
+
+    // 设置device features
+    VkPhysicalDeviceFeatures deviceFeatures{};
+
+    // 创建逻辑设备
+    VkDeviceCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+
+    createInfo.pQueueCreateInfos = &queueCreateInfo;// 指向队列的创建信息
+    createInfo.queueCreateInfoCount = 1;
+
+    createInfo.pEnabledFeatures = &deviceFeatures;// 指向设置好的features
+
+    createInfo.enabledExtensionCount = 0;
+
+    if(enableValidationLayers)
+    {
+        createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+        createInfo.ppEnabledLayerNames = validationLayers.data();
+    }
+    else
+    {
+        createInfo.enabledLayerCount = 0;
+    }
+
+    // 实例化逻辑设备
+    if(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS)
+    {// 最后一个参数是存储逻辑设备的变量指针
+        throw std::runtime_error("failed to create logical device!");
+    }
+
+    // 使用 vkGetDeviceQueue 函数来检索每个队列族的队列句柄
+    // 参数包括逻辑设备、队列簇、队列索引和指向用于存储队列句柄的变量的指针。
+    vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, & graphicsQueue);
+
 }
 
