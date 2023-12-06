@@ -74,6 +74,9 @@ private:
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
 
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
+
 
     void initWindow();
 
@@ -134,4 +137,10 @@ private:
     void createRenderPass();
 
     void createFramebuffers();
+
+    void createCommandPool();
+
+    void createCommandBuffer();
+
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 };
