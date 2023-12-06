@@ -67,6 +67,7 @@ void HelloTriangleApplication::initVulkan()
     createSwapChain();
     createImageViews();
 
+    createRenderPass();
     createGraphicsPipeline();
 }
 
@@ -80,7 +81,9 @@ void HelloTriangleApplication::mainLoop()
 
 void HelloTriangleApplication::cleanup()
 {
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    vkDestroyRenderPass(device, renderPass, nullptr);
 
     for(auto imageView : swapChainImageViews)
     {
@@ -727,6 +730,31 @@ void HelloTriangleApplication::createGraphicsPipeline()
         throw std::runtime_error("failed to create pipeline layout!");
     }
 
+    // 创建pipeline
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+
+    pipelineInfo.layout = pipelineLayout;
+
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+    if(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create graphics pipeline!");
+    }
+
     vkDestroyShaderModule(device, fragShaderModule, nullptr);
     vkDestroyShaderModule(device, vertShaderModule, nullptr);
 }
@@ -766,6 +794,47 @@ VkShaderModule HelloTriangleApplication::createShaderModule(const std::vector<ch
     }
 
     return shaderModule;
+
+}
+
+void HelloTriangleApplication::createRenderPass()
+{
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = swapChainImageFormat;// 格式同交换链中的格式
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;// 不使用多重采样
+    // 对渲染数据的处理
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;// 渲染前清空为一个常量
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;// 渲染后将内容存下
+    // 对模板数据的处理
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // 对图片布局的处理
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    // attachment references
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    // Subpasses 
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    // 创建RenderPass
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+
+    if(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create render pass!");
+    }
 
 }
 

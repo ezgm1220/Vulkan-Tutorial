@@ -69,7 +69,9 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;// 用来存储交换链中的基本图像
 
+    VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
+    VkPipeline graphicsPipeline;
 
     void initWindow();
 
@@ -126,4 +128,6 @@ private:
     static std::vector<char>readFile(const std::string& filename);
 
     VkShaderModule createShaderModule(const std::vector<char>& code);
+
+    void createRenderPass();
 };
