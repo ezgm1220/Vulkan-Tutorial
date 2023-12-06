@@ -69,6 +69,8 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;// 用来存储交换链中的基本图像
 
+    VkPipelineLayout pipelineLayout;
+
     void initWindow();
 
     void initVulkan();
