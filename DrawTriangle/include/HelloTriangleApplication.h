@@ -13,7 +13,7 @@ const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-#ifdef NDEBUG
+#ifdef NDEBUG//C++中的自带宏定义，来判断是debug和release版本
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
@@ -81,9 +81,13 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
 
+    bool framebufferResized = false;
+
     uint32_t currentFrame = 0;// 帧索引
 
     void initWindow();
+
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 
     void initVulkan();
 
@@ -152,4 +156,8 @@ private:
     void drawFrame();
 
     void createSyncObjects();
+
+    void cleanupSwapChain();
+
+    void recreateSwapChain();
 };

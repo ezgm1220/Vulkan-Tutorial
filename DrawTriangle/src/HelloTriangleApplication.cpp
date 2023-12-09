@@ -46,11 +46,19 @@ void HelloTriangleApplication::initWindow()
 
     // 这里是对glfw的一些设置,比如同指glfw不要为OpenGL设置上下文等
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     // 前三个参数是窗口相关的,第四个参数是可选择一个指定的显示器显示窗口
     // 第五个参数是跟OpenGL相关的不用管
+
+    glfwSetWindowUserPointer(window, this);
+    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);// 通过回调函数获取窗口信息
+}
+
+void HelloTriangleApplication::framebufferResizeCallback(GLFWwindow* window, int width, int height)
+{
+    auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+    app->framebufferResized = true;
 }
 
 void HelloTriangleApplication::initVulkan()
@@ -60,6 +68,7 @@ void HelloTriangleApplication::initVulkan()
     createInstance();
     setupDebugMessenger();
 
+    // 需要在Instance创建之后立即创建Window Surface
     createSurface();
 
     pickPhysicalDevice();
@@ -68,6 +77,7 @@ void HelloTriangleApplication::initVulkan()
     createSwapChain();
     createImageViews();
 
+    // Swap Chain本质上是一个等待被Present在屏幕上的图像队列
     createRenderPass();
     createGraphicsPipeline();
 
@@ -94,6 +104,13 @@ void HelloTriangleApplication::mainLoop()
 
 void HelloTriangleApplication::cleanup()
 {
+    cleanupSwapChain();
+
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+    vkDestroyRenderPass(device, renderPass, nullptr);
+
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
         vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -103,22 +120,6 @@ void HelloTriangleApplication::cleanup()
 
     vkDestroyCommandPool(device, commandPool, nullptr);
 
-    for(auto framebuffer : swapChainFramebuffers)
-    {
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
-    }
-
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
-    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-    vkDestroyRenderPass(device, renderPass, nullptr);
-
-    for(auto imageView : swapChainImageViews)
-    {
-        vkDestroyImageView(device, imageView, nullptr);
-    }
-
-
-    vkDestroySwapchainKHR(device, swapChain, nullptr);
     vkDestroyDevice(device, nullptr);
 
     if(enableValidationLayers)
@@ -148,7 +149,7 @@ void HelloTriangleApplication::createInstance()
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "No Engine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_0;// Vulkan的版本
 
     VkInstanceCreateInfo createInfo{};// 不可选的属性
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -999,12 +1000,24 @@ void HelloTriangleApplication::recordCommandBuffer(VkCommandBuffer commandBuffer
 
 void HelloTriangleApplication::drawFrame()
 {
+    // 等待前一帧绘制结束
     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &inFlightFences[currentFrame]);// 将fence重置为无信号状态
-
+    
     // 从交换链中获取图像
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+    
+    if(result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        recreateSwapChain();
+        return;
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        throw std::runtime_error("failed to acquire swap chain image!");
+    }
+
+    vkResetFences(device, 1, &inFlightFences[currentFrame]);// 将fence重置为无信号状态
 
     // 记录command buffer
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -1024,7 +1037,7 @@ void HelloTriangleApplication::drawFrame()
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
 
-    // 配置要向哪个 semaphore 发送信号????
+    // 配置Command Buffer完成执行后要发出信号的Semaphores
     VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
@@ -1048,7 +1061,18 @@ void HelloTriangleApplication::drawFrame()
     presentInfo.pImageIndices = &imageIndex;
 
     // 提交向交换链提交图像的请求
-    vkQueuePresentKHR(presentQueue, &presentInfo);
+    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized)
+    {
+        framebufferResized = false;
+        recreateSwapChain();
+    }
+    else if(result != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to present swap chain image!");
+    }
+
 
     // 更新帧索引
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -1065,6 +1089,7 @@ void HelloTriangleApplication::createSyncObjects()
 
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    // 在信号状态下创建Fence，以便第一次调用vkWaitForFences()立即返回，因为Fence已经发出信号。
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -1076,5 +1101,39 @@ void HelloTriangleApplication::createSyncObjects()
             throw std::runtime_error("failed to create synchronization objects for a frame!");
         }
     }
+}
+
+void HelloTriangleApplication::cleanupSwapChain()
+{
+    for(size_t i = 0; i < swapChainFramebuffers.size(); i++)
+    {
+        vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
+    }
+
+    for(size_t i = 0; i < swapChainImageViews.size(); i++)
+    {
+        vkDestroyImageView(device, swapChainImageViews[i], nullptr);
+    }
+
+    vkDestroySwapchainKHR(device, swapChain, nullptr);
+}
+
+void HelloTriangleApplication::recreateSwapChain()
+{
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    while(width == 0 || height == 0)
+    {
+        glfwGetFramebufferSize(window, &width, &height);
+        glfwWaitEvents();
+    }
+    
+    vkDeviceWaitIdle(device);
+
+    cleanupSwapChain();
+
+    createSwapChain();
+    createImageViews();
+    createFramebuffers();
 }
 
