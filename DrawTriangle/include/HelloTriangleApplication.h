@@ -119,6 +119,9 @@ private:
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
 
+    VkBuffer indexBuffer;
+    VkDeviceMemory indexBufferMemory;
+
     std::vector<VkCommandBuffer> commandBuffers;
 
     std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -214,4 +217,6 @@ private:
                       VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+
+    void createIndexBuffer();
 };
