@@ -1158,48 +1158,26 @@ void HelloTriangleApplication::recreateSwapChain()
 }
 
 void HelloTriangleApplication::createVertexBuffer()
-{
-    // 创建vertexBuffer缓冲区
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = sizeof(vertices[0]) * vertices.size();// 顶点数据的字节大小
-    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;// 它指示缓冲区中的数据将用于何种目的
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if(vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
-    {
-        throw std::runtime_error("failed to create vertex buffer!");
-    }
-
-    // 为缓冲区分配内存
-    VkMemoryRequirements memRequirements;
-    // 查询其内存需求
-    vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits,
-                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if(vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
-    {
-        throw std::runtime_error("failed to allocate vertex buffermemory!");
-    }
-
-    // 将内存与缓冲区相关联
-    // 第四个参数是内存区域内的offset。由于这个内存是专门为这个顶点缓冲区分配的，所以offset只是 0。
-    // 如果offset不为零，那么它需要被 memRequirements.alignment 整除。
-    vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+{// 使其仅使用主机可见缓冲区作为临时缓冲区，而使用设备本地缓冲区作为实际顶点缓冲区。
+    VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+    
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
     // 将顶点数据复制到缓冲区
     void* data;
-    vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-    // 将顶点数据存到内存中
-    memcpy(data, vertices.data(), (size_t)bufferInfo.size);
-    vkUnmapMemory(device, vertexBufferMemory);
+    vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        // 将顶点数据存到内存中
+        memcpy(data, vertices.data(), (size_t)bufferSize);
+    vkUnmapMemory(device, stagingBufferMemory);
 
+    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+
+    copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
 }
 
 uint32_t HelloTriangleApplication::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -1220,5 +1198,82 @@ uint32_t HelloTriangleApplication::findMemoryType(uint32_t typeFilter, VkMemoryP
     }
 
     throw std::runtime_error("failed to find suitable memory type!");
+}
+
+void HelloTriangleApplication::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
+                                            VkMemoryPropertyFlags properties, VkBuffer& buffer, 
+                                            VkDeviceMemory& bufferMemory)
+{
+    // 创建vertexBuffer缓冲区
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;// 顶点数据的字节大小
+    bufferInfo.usage = usage;// 它指示缓冲区中的数据将用于何种目的
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if(vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create buffer!");
+    }
+
+    // 为缓冲区分配内存
+    VkMemoryRequirements memRequirements;
+    // 查询其内存需求
+    vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+    // 分配内存
+    if(vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to allocate buffer memory!");
+    }
+
+    // 将内存与缓冲区相关联
+    // 第四个参数是内存区域内的offset。由于这个内存是专门为这个顶点缓冲区分配的，所以offset只是 0。
+    // 如果offset不为零，那么它需要被 memRequirements.alignment 整除。
+    vkBindBufferMemory(device, buffer, bufferMemory, 0);
+}
+
+void HelloTriangleApplication::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{// 将数据从一个Buffer复制到另一个Buffer,也就是copyBuffer
+    // 首先分配一个临时命令缓冲区
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;// 标识我们只使用一次
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = 0; // Optional
+        copyRegion.dstOffset = 0; // Optional
+        copyRegion.size = size;
+        // 拷贝数据
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+    
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphicsQueue);
+
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+
 }
 
