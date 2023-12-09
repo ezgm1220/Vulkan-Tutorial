@@ -1,12 +1,16 @@
 #pragma once
 #define GLFW_INCLUDE_VULKAN
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES// 这将迫使GLM使用已经为我们指定了对齐要求的vec2和mat4的版本
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <array>
 #include <optional>
 #include <set>
 #include <iostream>
+#include <chrono>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -57,6 +61,13 @@ struct Vertex
         return attributeDescriptions;
     }
 
+};
+
+struct UniformBufferObject
+{
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
 };
 
 struct QueueFamilyIndices
@@ -111,6 +122,7 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
     VkRenderPass renderPass;
+    VkDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
 
@@ -121,6 +133,13 @@ private:
 
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+
+    std::vector<VkBuffer> uniformBuffers;
+    std::vector<VkDeviceMemory> uniformBuffersMemory;
+    std::vector<void*> uniformBuffersMapped;
+
+    VkDescriptorPool descriptorPool;
+    std::vector<VkDescriptorSet> descriptorSets;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -219,4 +238,15 @@ private:
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
     void createIndexBuffer();
+
+    void createDescriptorSetLayout();
+
+    void createUniformBuffers();
+
+    void updateUniformBuffer(uint32_t currentImage);
+
+    void createDescriptorPool();
+
+    void createDescriptorSets();
+
 };
