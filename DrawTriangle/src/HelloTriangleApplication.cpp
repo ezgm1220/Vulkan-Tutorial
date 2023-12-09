@@ -14,9 +14,10 @@ extern const uint32_t HEIGHT;
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<Vertex> vertices = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
     {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, 
                                       const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, 
@@ -89,6 +90,9 @@ void HelloTriangleApplication::initVulkan()
     createFramebuffers();
 
     createCommandPool();
+
+    createVertexBuffer();
+
     createCommandBuffers();
 
     createSyncObjects();
@@ -113,8 +117,10 @@ void HelloTriangleApplication::cleanup()
 
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-
     vkDestroyRenderPass(device, renderPass, nullptr);
+
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexBufferMemory, nullptr);
 
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
@@ -977,26 +983,31 @@ void HelloTriangleApplication::recordCommandBuffer(VkCommandBuffer commandBuffer
     // 创建renderpass实例
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    // 绑定渲染管线
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        // 绑定渲染管线
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-    // 动态设置视口和剪裁信息
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(swapChainExtent.width);
-    viewport.height = static_cast<float>(swapChainExtent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        // 动态设置视口和剪裁信息
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(swapChainExtent.width);
+        viewport.height = static_cast<float>(swapChainExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent;
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapChainExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    // 开始渲染指令
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        // 绑定Vertex buffer
+        VkBuffer vertexBuffers[] = {vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+        // 开始渲染指令
+        vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
     // 结束渲染
     vkCmdEndRenderPass(commandBuffer);
@@ -1144,5 +1155,70 @@ void HelloTriangleApplication::recreateSwapChain()
     createSwapChain();
     createImageViews();
     createFramebuffers();
+}
+
+void HelloTriangleApplication::createVertexBuffer()
+{
+    // 创建vertexBuffer缓冲区
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = sizeof(vertices[0]) * vertices.size();// 顶点数据的字节大小
+    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;// 它指示缓冲区中的数据将用于何种目的
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if(vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create vertex buffer!");
+    }
+
+    // 为缓冲区分配内存
+    VkMemoryRequirements memRequirements;
+    // 查询其内存需求
+    vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if(vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to allocate vertex buffermemory!");
+    }
+
+    // 将内存与缓冲区相关联
+    // 第四个参数是内存区域内的offset。由于这个内存是专门为这个顶点缓冲区分配的，所以offset只是 0。
+    // 如果offset不为零，那么它需要被 memRequirements.alignment 整除。
+    vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+    // 将顶点数据复制到缓冲区
+    void* data;
+    vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    // 将顶点数据存到内存中
+    memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+    vkUnmapMemory(device, vertexBufferMemory);
+
+}
+
+uint32_t HelloTriangleApplication::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties memProperties;
+    // 查询有关可用内存类型的信息
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    // 寻找可分配的内存
+    for(uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+    {
+        // 我们只需遍历这些内存类型，并检查相应位是否设置为 1，就能找到合适内存类型的索引
+        // 除此之外,我们还需要能将顶点数据写入该内存
+        if((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+        {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
 }
 

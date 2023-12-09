@@ -115,6 +115,10 @@ private:
     VkPipeline graphicsPipeline;
 
     VkCommandPool commandPool;
+
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+
     std::vector<VkCommandBuffer> commandBuffers;
 
     std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -200,4 +204,8 @@ private:
     void cleanupSwapChain();
 
     void recreateSwapChain();
+
+    void createVertexBuffer();
+
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 };
