@@ -2,9 +2,11 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vector>
+#include <array>
 #include <optional>
 #include <set>
 #include <iostream>
+#include <glm/glm.hpp>
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -18,6 +20,44 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+struct Vertex
+{
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    static VkVertexInputBindingDescription getBindingDescription()
+    {
+        // 描述了以什么形式从内存中加载整个顶点的数据
+        VkVertexInputBindingDescription bindingDescription{};
+
+        bindingDescription.binding = 0;// binding数组中绑定的索引
+        bindingDescription.stride = sizeof(Vertex);// 从一个顶点数据到下一个顶点数据的字节数
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;// 在每个顶点之后移动到下一个顶点
+
+        return bindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
+    {
+        // 描述如何处理顶点输入
+        // 因为我们有两个属性，位置和颜色，所以我们需要两个Attribute Descriptions
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+        attributeDescriptions[0].binding = 0;//告诉Vulkan每个顶点的数据来自哪个binding
+        attributeDescriptions[0].location = 0;// Location参数引用顶点着色器中输入的Location指令
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);// 使用offsetof宏来计算偏移量
+
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+        return attributeDescriptions;
+    }
+
+};
 
 struct QueueFamilyIndices
 {
