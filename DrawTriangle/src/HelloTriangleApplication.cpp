@@ -101,6 +101,7 @@ void HelloTriangleApplication::initVulkan()
     createCommandPool();
 
     createTextureImage();
+    createTextureImageView();
 
     createVertexBuffer();
     createIndexBuffer();
@@ -142,6 +143,9 @@ void HelloTriangleApplication::cleanup()
     }
 
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+    vkDestroySampler(device, textureSampler, nullptr);
+    vkDestroyImageView(device, textureImageView, nullptr);
 
     vkDestroyImage(device, textureImage, nullptr);
     vkFreeMemory(device, textureImageMemory, nullptr);
@@ -398,7 +402,10 @@ bool HelloTriangleApplication::isDeviceSuitable(VkPhysicalDevice device)
         swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
     }
 
-    return indices.isComplete() && extensionsSupported && swapChainAdequate;
+    VkPhysicalDeviceFeatures supportedFeatures;
+    vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+
+    return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
 
 }
 
@@ -461,6 +468,7 @@ void HelloTriangleApplication::createLogicalDevice()
 
     // 设置device features
     VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.samplerAnisotropy = VK_TRUE;// 开启各向异性过滤
 
     // 创建逻辑设备
     VkDeviceCreateInfo createInfo{};
@@ -671,31 +679,7 @@ void HelloTriangleApplication::createImageViews()
 
     for(size_t i = 0; i < swapChainImages.size(); i++)
     {
-        VkImageViewCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = swapChainImages[i];
-
-        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;// 视图格式,类似一维二维三维纹理立方体贴图这种
-        createInfo.format = swapChainImageFormat;
-
-        // 通过组件的方式设置颜色的通道,这里都是默认的设置
-        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-
-        // subresourceRange设置图像的用途以及访问方式,以及mipmap等级
-        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        createInfo.subresourceRange.baseMipLevel = 0;
-        createInfo.subresourceRange.levelCount = 1;
-        createInfo.subresourceRange.baseArrayLayer = 0;
-        createInfo.subresourceRange.layerCount = 1;
-
-        // 创建图像视图
-        if(vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create image views!");
-        }
+        swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
     }
 }
 
@@ -1642,6 +1626,80 @@ void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
     );
 
     endSingleTimeCommands(commandBuffer);
+}
+
+void HelloTriangleApplication::createTextureImageView()
+{
+    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+}
+
+VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat format)
+{
+    // 省略了明确的viewInfo.component初始化，因为 VK_COMPONENT_SWIZZLE_IDENTITY 反正是定义为0。
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;// 视图格式,类似一维二维三维纹理立方体贴图这种
+    viewInfo.format = format;
+
+    // subresourceRange设置图像的用途以及访问方式,以及mipmap等级
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    VkImageView imageView;
+    if(vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create texture imageview!");
+    }
+
+    return imageView;
+}
+
+void HelloTriangleApplication::createTextureSampler()
+{
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    // 指定如何插值被放大或缩小的Texel
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+
+    // 指定每个轴向使用的寻址模式
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+    // anisotropyEnable和maxAnisotropy指定是否应该使用各向异性过滤
+    samplerInfo.anisotropyEnable = VK_TRUE;
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+    // 限制了可用于计算最终颜色的texel样本的数量,可以通过物理设备属性去设置
+    samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+
+    // 以Border寻址模式对图像进行采样时返回哪种颜色
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+
+    // 用哪种坐标系统来处理图像中的纹理
+    // TRUE:  使用[0, texWidth]和[0, texHeight]范围内的坐标
+    // FALSE: 在所有轴上使用[0, 1]范围来处理texels
+    samplerInfo.unnormalizedCoordinates = VK_FALSE;
+
+    // 启用了比较功能，那么texels将首先与一个值进行比较，而比较的结果将用于过滤操作
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+
+    // mipmap相关设置
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.mipLodBias = 0.0f;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 0.0f;
+
+    if(vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create texture sampler!");
+    }
 }
 
 

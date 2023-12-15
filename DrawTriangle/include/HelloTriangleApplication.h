@@ -150,6 +150,8 @@ private:
     // 纹理相关
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+    VkSampler textureSampler;
 
     bool framebufferResized = false;
 
@@ -267,4 +269,8 @@ private:
 
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
+    void createTextureImageView();
+    VkImageView createImageView(VkImage image, VkFormat format);
+
+    void createTextureSampler();// 创建纹理采样器
 };
