@@ -17,14 +17,20 @@ extern const uint32_t HEIGHT;
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
 };
 
 const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0
+    0, 1, 2, 2, 3, 0,
+    4, 5, 6, 6, 7, 4
 };
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, 
@@ -96,6 +102,7 @@ void HelloTriangleApplication::initVulkan()
     createDescriptorSetLayout();
     createGraphicsPipeline();
 
+    createDepthResources();
     createFramebuffers();
 
     createCommandPool();
@@ -680,7 +687,7 @@ void HelloTriangleApplication::createImageViews()
 
     for(size_t i = 0; i < swapChainImages.size(); i++)
     {
-        swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+        swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 }
 
@@ -749,6 +756,15 @@ void HelloTriangleApplication::createGraphicsPipeline()
     multisampling.sampleShadingEnable = VK_FALSE;// 暂时先禁用
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+    // 关于深度测试,模板测试的设置
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;// 是否应将新片段的深度与Depth Buffer同位置的像素点的深度进行比较，看它们是否应被丢弃
+    depthStencil.depthWriteEnable = VK_TRUE;// 是否应将通过深度测试的新片段的深度实际写入Depth Buffer
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;// 为保留或丢弃片段所进行的比较函数
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;// 不启用模板测试
+
     // 配置Blend
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask =
@@ -802,6 +818,7 @@ void HelloTriangleApplication::createGraphicsPipeline()
     pipelineInfo.pViewportState = &viewportState;
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
 
@@ -873,16 +890,31 @@ void HelloTriangleApplication::createRenderPass()
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = findDepthFormat();
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     // attachment references
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     // 设置Subpasses相关属性
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; //指定该SubPass支持的Pipeline类型
     subpass.colorAttachmentCount = 1;// Color Attachment的数量
     subpass.pColorAttachments = &colorAttachmentRef;// 指向VkAttachmentReference数组的指针
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
     // 设置SubPass之间的依赖
     VkSubpassDependency dependency{};
@@ -890,19 +922,22 @@ void HelloTriangleApplication::createRenderPass()
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
     // 指定了要等待的操作以及这些操作发生的阶段
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;// 指定源阶段掩码
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;// 指定源阶段掩码
     dependency.srcAccessMask = 0;// 源访问掩码
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;// 目标阶段掩码
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;// 目标访问掩码
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;;// 目标阶段掩码
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;;// 目标访问掩码
 
 
     // 创建RenderPass
+    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
     VkRenderPassCreateInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    renderPassInfo.pAttachments = attachments.data();
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 1;
+    renderPassInfo.pDependencies = &dependency;
 
     if(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS)
     {
@@ -918,13 +953,13 @@ void HelloTriangleApplication::createFramebuffers()
     // 遍历图像视图从而创建帧缓冲区
     for(size_t i = 0; i < swapChainImageViews.size(); i++)
     {
-        VkImageView attachments[] = {swapChainImageViews[i]};
+        std::array<VkImageView, 2> attachments = {swapChainImageViews[i],depthImageView};
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = 1;
-        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());;
+        framebufferInfo.pAttachments = attachments.data();
         framebufferInfo.width = swapChainExtent.width;
         framebufferInfo.height = swapChainExtent.height;
         framebufferInfo.layers = 1;
@@ -993,9 +1028,11 @@ void HelloTriangleApplication::recordCommandBuffer(VkCommandBuffer commandBuffer
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = swapChainExtent;
     // 设置clear color
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+    renderPassInfo.pClearValues = clearValues.data();
 
     // 创建renderpass实例
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -1155,6 +1192,10 @@ void HelloTriangleApplication::createSyncObjects()
 
 void HelloTriangleApplication::cleanupSwapChain()
 {
+    vkDestroyImageView(device, depthImageView, nullptr);
+    vkDestroyImage(device, depthImage, nullptr);
+    vkFreeMemory(device, depthImageMemory, nullptr);
+
     for(size_t i = 0; i < swapChainFramebuffers.size(); i++)
     {
         vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
@@ -1184,6 +1225,7 @@ void HelloTriangleApplication::recreateSwapChain()
 
     createSwapChain();
     createImageViews();
+    createDepthResources();
     createFramebuffers();
 }
 
@@ -1526,34 +1568,34 @@ void HelloTriangleApplication::createImage(uint32_t width, uint32_t height,
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;// 与缓冲区内像素相同的文本格式
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;// 让vk为我们自定义布局从而更快访问(另一种方式是行为主)
+    imageInfo.format = format;// 与缓冲区内像素相同的文本格式
+    imageInfo.tiling = tiling;// 让vk为我们自定义布局从而更快访问(另一种方式是行为主)
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;// 转换成可被GPU访问的资源后丢弃Texels
-    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;// 只被支持图形的QueueFamily传输操作。
+    imageInfo.usage = usage;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;// 与多重采样有关
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;// 只被支持图形的QueueFamily传输操作。
     imageInfo.flags = 0; // Optional,稀疏图像有关的图像的flag字段
 
-    if(vkCreateImage(device, &imageInfo, nullptr, &textureImage) != VK_SUCCESS)
+    if(vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS)
     {
         throw std::runtime_error("failed to create image!");
     }
 
     // 为图像分配内存
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+    vkGetImageMemoryRequirements(device, image, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if(vkAllocateMemory(device, &allocInfo, nullptr, &textureImageMemory) != VK_SUCCESS)
+    if(vkAllocateMemory(device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS)
     {
         throw std::runtime_error("failed to allocate image memory!");
     }
 
-    vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+    vkBindImageMemory(device, image, imageMemory, 0);
 }
 
 void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
@@ -1654,10 +1696,10 @@ void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image,
 
 void HelloTriangleApplication::createTextureImageView()
 {
-    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB,VK_IMAGE_ASPECT_COLOR_BIT);
 }
 
-VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat format)
+VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags)
 {
     // 省略了明确的viewInfo.component初始化，因为 VK_COMPONENT_SWIZZLE_IDENTITY 反正是定义为0。
     VkImageViewCreateInfo viewInfo{};
@@ -1667,7 +1709,7 @@ VkImageView HelloTriangleApplication::createImageView(VkImage image, VkFormat fo
     viewInfo.format = format;
 
     // subresourceRange设置图像的用途以及访问方式,以及mipmap等级
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.aspectMask = aspectFlags;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -1724,6 +1766,47 @@ void HelloTriangleApplication::createTextureSampler()
     {
         throw std::runtime_error("failed to create texture sampler!");
     }
+}
+
+void HelloTriangleApplication::createDepthResources()
+{
+    VkFormat depthFormat = findDepthFormat();
+
+    createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
+    depthImageView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+}
+
+VkFormat HelloTriangleApplication::findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+    for(VkFormat format : candidates)
+    {
+        VkFormatProperties props;
+        // 查询该设备支持的Image Format
+        vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+        if(tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+        {
+            return format;
+        }
+        else if(tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+        {
+            return format;
+        }
+    }
+    throw std::runtime_error("failed to find supported format!");
+}
+
+VkFormat HelloTriangleApplication::findDepthFormat()
+{
+    return findSupportedFormat(
+        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
+}
+
+bool HelloTriangleApplication::hasStencilComponent(VkFormat format)
+{
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 

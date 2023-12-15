@@ -2,6 +2,7 @@
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES// 这将迫使GLM使用已经为我们指定了对齐要求的vec2和mat4的版本
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE// 使用Vulkan的深度范围为0.0到1.0
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <array>
@@ -27,7 +28,7 @@ const bool enableValidationLayers = true;
 
 struct Vertex
 {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
     glm::vec2 texCoord;
 
@@ -51,7 +52,7 @@ struct Vertex
 
         attributeDescriptions[0].binding = 0;//告诉Vulkan每个顶点的数据来自哪个binding
         attributeDescriptions[0].location = 0;// Location参数引用顶点着色器中输入的Location指令
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[0].offset = offsetof(Vertex, pos);// 使用offsetof宏来计算偏移量
 
         attributeDescriptions[1].binding = 0;
@@ -158,6 +159,11 @@ private:
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
     VkSampler textureSampler;
+
+    // 深度测试相关
+    VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
 
     bool framebufferResized = false;
 
@@ -276,7 +282,19 @@ private:
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
     void createTextureImageView();
-    VkImageView createImageView(VkImage image, VkFormat format);
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
     void createTextureSampler();// 创建纹理采样器
+
+    void createDepthResources();
+
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, 
+                                 VkImageTiling tiling, VkFormatFeatureFlags features);
+    
+    // 为深度测试寻找最合适的格式
+    VkFormat findDepthFormat();
+
+    // 判断是否包含模板组件
+    bool hasStencilComponent(VkFormat format);
+
 };

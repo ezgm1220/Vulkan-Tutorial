@@ -66,6 +66,57 @@ Fence必须被手动重置，以使其恢复到无信号的状态。这是因为
 
 Swap Chain操作和等待前一帧完成。我们希望将Semaphore用于Swap Chain操作，因为它们发生在 GPU 上，因此如果我们可以提供帮助，我们不想让主机等待。为了等待前一帧完成，我们想使用Fence，因为我们需要主机等待。这样我们就不会一次绘制超过一帧。
 
+
+
+# 添加纹理
+
+在我们的应用程序中添加纹理将涉及以下步骤:
+
+- 创建设备内存支持的图像对象。
+- 从图像文件填充像素。
+- 创建一个纹理采样器。
+- 添加一个纹理采样器Descriptors，在像素着色器当中从纹理中提取颜色。
+
+创建图像并向其填充数据与创建Vertex Buffer类似。我们将首先创建一个Staging Buffer，并在其中填充像素数据，然后将其复制到我们将用于渲染的最终Image Object中。
+Vulkan也允许你将像素从VkBuffer复制到Image中，而且这样做的API在某些硬件上实际上更快。
+
+图像的layout:
+
+- **VK_IMAGE_LAYOUT_PRESENT_SRC_KHR**: 最适合Present的Layout。
+- **VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL**: 作为传送源操作的时候，使用最佳，如vkCmdCopyImageToBuffer。
+- **VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL**: 当使用附件从片段着色器进行写入时候，使用最佳。
+- **VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL**: 作为传输目的地的时候，使用最佳，就像vkCmdCopyBufferToImage。
+- **VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL**: 最适合于从着色器中采样。
+
+最常见的转换Image Layout的方法之一是**管线屏障(Pipeline Barrier)**。Pipeline Barrier主要用于同步访问资源，比如确保图像在被读取之前已经被写入，但它们也可以用来Layout变换。
+
+VkImageCreateInfo tiling字段可以有两个值:
+
+- **VK_IMAGE_TILING_LINEAR**: 纹理是以行为主的顺序排列的，就像我们的像素阵列一样。
+- **VK_IMAGE_TILING_OPTIMAL**: Texel基于具体的实现来定义布局，以达到最佳访问效果。
+
+与图像的布局不同，tiling属性不能在之后进行改变。如果你希望能够直接访问图像内存中的Texel，那么你必须使用VK_IMAGE_TILING_LINEAR。我们将使用一个Staging Buffer 而不是Staging Image，所以这没有必要。我们将使用VK_IMAGE_TILING_OPTIMAL来实现着色器的有效访问。
+
+执行布局转换的最常见方法之一是使用Image Memory barrier。像这样的PipeLine Barrier通常用于同步访问资源，比如确保在从Buffer读取之前完成对Buffer的写入，但是当使用VK_SHARING_MODE_EXCLUSIVE时，它也可以用于转换图像布局和转移QueueFamily所有权。有一个相等的buffer memory barrier来为缓冲区做这件事。
+
+barrier主要用于同步目的，所以你必须指定哪些涉及资源的操作类型必须在barrier之前发生，同时要指定哪一种操作及资源必须等待barrier。尽管已经使用vkQueueWaitIdle来手动同步，我们还是需要这样做。正确的值取决于旧的和新的布局，所以我们一旦我们知道了要使用的变换，就可以回到布局部分。
+
+![image-20231215095031569](image-20231215095031569.png)
+
+着色器有可能直接从图像中读取纹理，但当它们被用作纹理时，这并不是很常见。纹理通常是通过采样器访问的，它将应用滤波和变换来计算被检索的最终颜色。
+
+VkSamplerCreateInfo addressMode指定每个轴向使用的寻址模式
+
+- **VK_SAMPLER_ADDRESS_MODE_REPEAT**：当超过图像尺寸的时候采用循环填充。
+- **VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT**：与循环模式类似，但是当超过图像尺寸的时候，它采用反向镜像效果。
+- **VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE**：当超过图像尺寸的时候，采用边缘最近的颜色进行填充。
+- **VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TOEDGE**：与边缘模式类似，但是使用与最近边缘相反的边缘进行填充。
+- **VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER**：当采样超过图像的尺寸时，返回一个纯色填充。
+
+采样器并没有在任何地方引用VkImage。采样器是一个独特的对象，它提供了一个从纹理中提取颜色的接口。它可以应用于任何你想要的图像，无论它是一维、二维还是三维。这与许多旧的API不同，旧的API将纹理图像和过滤合并到一个状态。
+
+
+
 # 资源绑定
 
 - Descriptor
@@ -730,3 +781,30 @@ Vulkan当中同步原语有Fence/Semaphores/Event/Pipeline Barrier/Timeline/Subp
 所有的Command最后还是要通过Queue给GPU来执行，但是在硬件上有着不同的种类Queue并能够支持不同的功能(比如图形/计算/传输等等)。
 
 所以可以利用这一点，创建多个Queue可以来完成Queue级别的并行，并且可以通过不同种类的Queue来做特殊操作，比如一边使用Computer Queue来进行数据处理，另外一边用Graphics Queue来完成渲染。如下图所示，这被称为异步计算可以提高GPU的占用率。
+
+![img](v2-20e59ad2cecfa277fd7039fc87d7ef22_r.jpg)
+
+### Command 和 Operation
+
+在Command Buffer中被Record的Command主要可以分为三种用途分别是Perform Actions/Set State/Perform Synchronizations。
+
+- ==**Perform Actions Command**==也被称为Action Command一般包含draw, dispatch, clear, copy, query/timestamp operations, begin/end subpass主要是有关DrawCall的操作。一些常见的Action Command是根据调用VkBeginCommandBuffer后的当前各种State来执行(通过Set State Command设置的)。**执行Action Command所涉及的工作通常允许并行或乱序执行，但不能改变每个执行Action Command所要使用的状态**。一般来说Action Command是会涉及到改变Framebuffer中的Attachment或者Read/Write Buffer或Image，或写入Query Pool的Command等Operation。
+- **==Set State Command==**包含bind pipelines, descriptor sets, and buffers, set dynamic state, push constants, set render pass/subpass state可以用来**设置状态(资源绑定等等)**。**并且这个状态设置是累计的但是是以Command Buffer为单位。并且从VkBeginCommandBuffer开始，不同的Command Buffer之间状态设置不会互相影响。**
+- ==**Perform Synchronization Command**==包括set/wait events, pipeline barrier, render pass/subpass dependencies，其实也就是同步Command。**在这里只有Aciton Command需要同步操作。**
+
+在Vulkan中的Operation代表了在CPU、GPU或外部实体(如演示引擎)上执行的任意数量的工作。而Action Command会包含多个Operation。
+
+同步Command通过同步作用域(synchronization scopes)为两组Operation之间引入了内存依赖和执行依赖(后面会讲到)。
+
+**同步作用域定义了一个同步Command能够与哪些Operation建立执行依赖关系**。任何不在同步Command的同步作用域中的Operation类型都不会被包括在所产生的依赖关系中。通过同步Command对于Operation的控制，那么**同步Command就能够在在两组Action Command之间引入了明确的执行和内存依赖关系**。这些依赖关系强制要求后一组某些Operation的执行发生在前一组的某些Operation执行之后以及某些Operation执行的内存访问的效果按顺序发生并且保证彼此内存可见。如果没有明确的依赖关系或隐含的排序保证，Action Command可能会重叠执行或乱序执行，也可能看不到彼此的内存访问导致的副作用导致脏数据等等。
+
+另外同步Command来**保证两组Action Command的是基于Command的Submission Order来工作的**，Submission Order是Vulkan提供一个隐式排序保证。确保提交Command的顺序是有意义的。赋予了Action Command和同步Command按顺序被Record并提交到单个Queue的意义。
+Command之间的显式和隐式排序保证都是以Submission Order有意义为前提的。这种顺序本身并不定义任何执行或内存依赖，同步Command和API中的其他顺序使用Submission Order来定义它们的使用范围。
+
+执行依赖是对于两组Operation来说是第一组某个Operation必须在第二组某个Operation之前发生，更确切地说：
+
+- 首先是第一组Operation为Ops1，第二组Operation为Ops2。
+- Sync代表一个同步Command。Scope1st和Scope2nd是Sync的同步作用域。
+- ScopedOps1是Ops1和Scope1st集合的交集，ScopedOps2是Ops2和Scope2st集合的交集
+
+按照这个顺序提交Ops1、Sync和Ops2。执行依赖会保证其ScopedOps1比ScopedOps2先执行完毕。在这里你可能会这对这个交集的概念有一些疑惑，说人话也就是从一组Operation中挑选和同步作用域能够匹配上的一个Operation。大部分情况不希望(有时也不能)与之前提交的所有东西同步(并行度太低)，所以只选择一组Operation的一些子集，做一个类似集合交集的概念!
