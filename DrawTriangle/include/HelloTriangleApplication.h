@@ -147,6 +147,10 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
 
+    // 纹理相关
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+
     bool framebufferResized = false;
 
     uint32_t currentFrame = 0;// 帧索引
@@ -235,6 +239,9 @@ private:
                       VkMemoryPropertyFlags properties, 
                       VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 
+    // 将command Buffer 的流程拆分开来
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
     void createIndexBuffer();
@@ -248,5 +255,16 @@ private:
     void createDescriptorPool();
 
     void createDescriptorSets();
+
+    void createTextureImage();
+
+    void createImage(uint32_t width, uint32_t height, 
+                     VkFormat format, VkImageTiling tiling, 
+                     VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
+                     VkImage& image, VkDeviceMemory& imageMemory);
+
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
 };

@@ -8,6 +8,9 @@
 #include <algorithm> // Necessary for std::clamp
 #include <fstream>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 extern const uint32_t WIDTH;
 extern const uint32_t HEIGHT;
 
@@ -97,6 +100,8 @@ void HelloTriangleApplication::initVulkan()
 
     createCommandPool();
 
+    createTextureImage();
+
     createVertexBuffer();
     createIndexBuffer();
     // 使用Uniform
@@ -137,6 +142,9 @@ void HelloTriangleApplication::cleanup()
     }
 
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+    vkDestroyImage(device, textureImage, nullptr);
+    vkFreeMemory(device, textureImageMemory, nullptr);
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
@@ -885,23 +893,22 @@ void HelloTriangleApplication::createRenderPass()
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    // Subpasses 
+    // 设置Subpasses相关属性
     VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; //指定该SubPass支持的Pipeline类型
+    subpass.colorAttachmentCount = 1;// Color Attachment的数量
+    subpass.pColorAttachments = &colorAttachmentRef;// 指向VkAttachmentReference数组的指针
 
-    // 设置子通路依赖关系???
+    // 设置SubPass之间的依赖
     VkSubpassDependency dependency{};
     // 指定了依赖关系和依赖子旁路的索引
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
     // 指定了要等待的操作以及这些操作发生的阶段
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    // ???
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;// 指定源阶段掩码
+    dependency.srcAccessMask = 0;// 源访问掩码
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;// 目标阶段掩码
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;// 目标访问掩码
 
 
     // 创建RenderPass
@@ -1276,8 +1283,8 @@ void HelloTriangleApplication::createBuffer(VkDeviceSize size, VkBufferUsageFlag
     vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
 
-void HelloTriangleApplication::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
-{// 将数据从一个Buffer复制到另一个Buffer,也就是copyBuffer
+VkCommandBuffer HelloTriangleApplication::beginSingleTimeCommands()
+{
     // 首先分配一个临时命令缓冲区
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1293,14 +1300,12 @@ void HelloTriangleApplication::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;// 标识我们只使用一次
 
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
-        
-        VkBufferCopy copyRegion{};
-        copyRegion.srcOffset = 0; // Optional
-        copyRegion.dstOffset = 0; // Optional
-        copyRegion.size = size;
-        // 拷贝数据
-        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-    
+
+    return commandBuffer;
+}
+
+void HelloTriangleApplication::endSingleTimeCommands(VkCommandBuffer commandBuffer)
+{
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo{};
@@ -1312,7 +1317,18 @@ void HelloTriangleApplication::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer
     vkQueueWaitIdle(graphicsQueue);
 
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
 
+void HelloTriangleApplication::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
+{// 将数据从一个Buffer复制到另一个Buffer,也就是copyBuffer 
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = 0; // Optional
+        copyRegion.dstOffset = 0; // Optional
+        copyRegion.size = size;
+        // 拷贝数据
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+    endSingleTimeCommands(commandBuffer);
 }
 
 void HelloTriangleApplication::createIndexBuffer()
@@ -1411,6 +1427,7 @@ void HelloTriangleApplication::createDescriptorPool()
 
 void HelloTriangleApplication::createDescriptorSets()
 {// 为运行中的每一帧创建一个Descriptor Set，所有的Descriptor都有相同的DescriptorSetLayout
+    // 开始分配Descriptor
     std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1424,7 +1441,7 @@ void HelloTriangleApplication::createDescriptorSets()
         throw std::runtime_error("failed to allocate descriptor sets!");
     }
 
-    // 配置Descriptor
+    // 开始绑定Descriptor
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
     {
         VkDescriptorBufferInfo bufferInfo{};
@@ -1445,4 +1462,187 @@ void HelloTriangleApplication::createDescriptorSets()
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
     }
 }
+
+void HelloTriangleApplication::createTextureImage()
+{
+    int texWidth, texHeight, texChannels;
+    stbi_uc* pixels = stbi_load("textures/awesomeface.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+    if(!pixels)
+    {
+        throw std::runtime_error("failed to load texture image!");
+    }
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+
+    // 创建stageBuffer 在这里使用VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+    // VK_MEMORY_PROPERTY_HOST_COHERENT_BIT 保证为host visible
+    createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+    void* data;
+    // 建立映射
+    vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+    // 进行拷贝
+    memcpy(data, pixels, static_cast<size_t>(imageSize));
+    // 解除映射
+    vkUnmapMemory(device, stagingBufferMemory);
+    // 清理原始像素阵列
+    stbi_image_free(pixels);
+
+    createImage(texWidth, texHeight, 
+                VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, 
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+
+    // 纹理图像布局转化到 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+    // 继续改变布局为着色器访问纹理图像做准备
+    transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+
+void HelloTriangleApplication::createImage(uint32_t width, uint32_t height,
+                                           VkFormat format, VkImageTiling tiling, 
+                                           VkImageUsageFlags usage, VkMemoryPropertyFlags properties, 
+                                           VkImage& image, VkDeviceMemory& imageMemory)
+{
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;// 图片类型
+    imageInfo.extent.width = width;
+    imageInfo.extent.height = height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;// 与缓冲区内像素相同的文本格式
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;// 让vk为我们自定义布局从而更快访问(另一种方式是行为主)
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;// 转换成可被GPU访问的资源后丢弃Texels
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;// 只被支持图形的QueueFamily传输操作。
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;// 与多重采样有关
+    imageInfo.flags = 0; // Optional,稀疏图像有关的图像的flag字段
+
+    if(vkCreateImage(device, &imageInfo, nullptr, &textureImage) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create image!");
+    }
+
+    // 为图像分配内存
+    VkMemoryRequirements memRequirements;
+    vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if(vkAllocateMemory(device, &allocInfo, nullptr, &textureImageMemory) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to allocate image memory!");
+    }
+
+    vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+}
+
+void HelloTriangleApplication::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+{// 处理布局转换
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    // 从oldLayout转换到newLayout,
+    // 如果你不关心图像的现有内容，可以使用VK_IMAGE_LAYOUT_UNDEFINED作为oldLayout
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+
+    // 使用barrier来转移QueueFamily的所有权，那么这两个字段应该是QueueFamily的索引
+    // 若不想这样做，它们必须被设置为 VK_QUEUE_FAMILY_IGNORED
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+    // image和subresourceRange字段指定受影响的图像和图像的具体部分
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    VkPipelineStageFlags sourceStage;
+    VkPipelineStageFlags destinationStage;
+
+    if(oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+    else if(oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else
+    {
+        throw std::invalid_argument("unsupported layout transition!");
+    }
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        sourceStage,// 指定在哪个管线阶段发生的操作应该发生在barriers之前
+        destinationStage,// 指定在哪个管线阶段发生的操作将在barriers上等待
+        0,
+        // 最后三对参数引用了三种可用类型的Pipeline barriers数组
+        0, nullptr,// 内存屏障(memory barriers)
+        0, nullptr,// 缓冲区内存屏障(buffer memory barriers)
+        1, &barrier// 图像内存屏障(image memory barriers)
+    );
+
+    endSingleTimeCommands(commandBuffer);
+}
+
+void HelloTriangleApplication::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+{
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    // 指定像素在内存中的排列方式
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    // imageSubresource、imageOffset和imageExtent字段表示我们要将像素复制到Image的哪一部分
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {
+        width,
+        height,
+        1
+    };
+
+    vkCmdCopyBufferToImage(
+        commandBuffer,
+        buffer,
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,// 该图像目前使用的布局
+        1,
+        &region
+    );
+
+    endSingleTimeCommands(commandBuffer);
+}
+
+
 
